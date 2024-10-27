@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "MPSENet"
+description = "Python package of MP-SENet from Explicit Estimation of Magnitude and Phase Spectra in Parallel for High-Quality Speech Enhancement."
+readme = "README.md"
+license = "MIT"
+version = "1.0.1"
+authors = [{ name = "yxlu-0102" }]
+dependencies = [
+    "torch",
+    "numpy",
+    "librosa",
+    "soundfile",
+    "einops",
+    "joblib",
+    "huggingface_hub",
+]
+requires-python = ">=3.10"
+
+[project.urls]
+Homepage = "https://github.com/jacoblincool/MPSENet"
+Issues = "https://github.com/jacoblincool/MPSENet/issues"
+
+[tool.hatch.build.targets.sdist]
+include = ["MPSENet/**/*", "pyproject.toml", "README.md", "LICENSE"]
+[tool.hatch.build.targets.wheel]
+packages = ["MPSENet"]
