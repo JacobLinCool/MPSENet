@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Tuple, List
 from huggingface_hub import PyTorchModelHubMixin
 
@@ -234,6 +235,7 @@ class MPSENet(
             "hann_window", torch.hann_window(h.win_size), persistent=False
         )
 
+    @torch.no_grad()
     def __call__(
         self, inputs: np.array, segment_size: int | None = None
     ) -> Tuple[np.array, int, List[str]]:
@@ -264,9 +266,19 @@ class MPSENet(
         inputs = (inputs * norm_factor).unsqueeze(0)
 
         segments = []
+        early_stop = False
         for start in range(0, inputs.size(1), segment_size):
             end = min(start + segment_size, inputs.size(1))
+            # If the next segment is small, join it with the current segment
+            if inputs.size(1) - end < segment_size // 2:
+                end = inputs.size(1)
+                early_stop = True
+
             segment = inputs[:, start:end]
+            if segment.size(1) < self.h.win_size:
+                pad = self.h.win_size - segment.size(1)
+                segment = F.pad(segment, (0, pad))
+
             noisy_amp, noisy_pha, _ = mag_pha_stft(
                 segment,
                 self.hann_window,
@@ -288,6 +300,9 @@ class MPSENet(
                 self.h.compress_factor,
             )
             segments.append(audio_g)
+
+            if early_stop:
+                break
 
         audio_g = torch.cat(segments, dim=-1)
         audio_g = audio_g / norm_factor
