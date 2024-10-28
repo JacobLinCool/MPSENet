@@ -219,6 +219,7 @@ class MPSENet(
         if isinstance(h, dict):
             h = AttrDict(h)
         self.h = h
+        self.sampling_rate = h.sampling_rate
         self.num_tscblocks = num_tsblocks
         self.dense_encoder = DenseEncoder(h, in_channel=2)
 
@@ -229,7 +230,9 @@ class MPSENet(
         self.mask_decoder = MaskDecoder(h, out_channel=1)
         self.phase_decoder = PhaseDecoder(h, out_channel=1)
 
-    def __call__(self, inputs: np.array) -> Tuple[np.array, int, List[str]]:
+    def __call__(
+        self, inputs: np.array, segment_size: int | None = None
+    ) -> Tuple[np.array, int, List[str]]:
         """
         Args:
             inputs (:obj:`np.array`):
@@ -244,29 +247,44 @@ class MPSENet(
                     This can be the name of the instruments for audio source separation
                     or some annotation for speech enhancement. The length must be `C'`.
         """
+        if segment_size is None:
+            if "segment_size" in self.h:
+                segment_size = self.h.segment_size
+            else:
+                segment_size = 32000
+
         device = next(self.parameters()).device
 
         inputs = torch.tensor(inputs).to(device)
         norm_factor = torch.sqrt(len(inputs) / torch.sum(inputs**2.0))
         inputs = (inputs * norm_factor).unsqueeze(0)
-        noisy_amp, noisy_pha, _ = mag_pha_stft(
-            inputs,
-            self.h.n_fft,
-            self.h.hop_size,
-            self.h.win_size,
-            self.h.compress_factor,
-        )
 
-        amp_g, pha_g, _ = self.forward(noisy_amp, noisy_pha)
+        segments = []
+        for start in range(0, inputs.size(1), segment_size):
+            end = min(start + segment_size, inputs.size(1))
+            segment = inputs[:, start:end]
+            noisy_amp, noisy_pha, _ = mag_pha_stft(
+                segment,
+                self.h.n_fft,
+                self.h.hop_size,
+                self.h.win_size,
+                self.h.compress_factor,
+            )
+            print(f"{noisy_amp.shape=}, {noisy_pha.shape=}")
 
-        audio_g = mag_pha_istft(
-            amp_g,
-            pha_g,
-            self.h.n_fft,
-            self.h.hop_size,
-            self.h.win_size,
-            self.h.compress_factor,
-        )
+            amp_g, pha_g, _ = self.forward(noisy_amp, noisy_pha)
+
+            audio_g = mag_pha_istft(
+                amp_g,
+                pha_g,
+                self.h.n_fft,
+                self.h.hop_size,
+                self.h.win_size,
+                self.h.compress_factor,
+            )
+            segments.append(audio_g)
+
+        audio_g = torch.cat(segments, dim=-1)
         audio_g = audio_g / norm_factor
         audio_g = audio_g.squeeze().detach().cpu().numpy()
 
