@@ -7,7 +7,7 @@ name = "MPSENet"
 description = "Python package of MP-SENet from Explicit Estimation of Magnitude and Phase Spectra in Parallel for High-Quality Speech Enhancement."
 readme = "README.md"
 license = "MIT"
-version = "1.0.1"
+version = "1.0.2"
 authors = [{ name = "yxlu-0102" }]
 dependencies = [
     "torch",
