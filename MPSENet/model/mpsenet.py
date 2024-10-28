@@ -19,8 +19,9 @@ def get_padding_2d(kernel_size, dilation=(1, 1)):
     )
 
 
-def mag_pha_stft(y, n_fft, hop_size, win_size, compress_factor=1.0, center=True):
-    hann_window = torch.hann_window(win_size).to(y.device)
+def mag_pha_stft(
+    y, hann_window, n_fft, hop_size, win_size, compress_factor=1.0, center=True
+):
     stft_spec = torch.stft(
         y,
         n_fft,
@@ -43,12 +44,11 @@ def mag_pha_stft(y, n_fft, hop_size, win_size, compress_factor=1.0, center=True)
 
 
 def mag_pha_istft(
-    mag, pha, n_fft, hop_size, win_size, compress_factor=1.0, center=True
+    mag, pha, hann_window, n_fft, hop_size, win_size, compress_factor=1.0, center=True
 ):
     # Magnitude Decompression
     mag = torch.pow(mag, (1.0 / compress_factor))
     com = torch.complex(mag * torch.cos(pha), mag * torch.sin(pha))
-    hann_window = torch.hann_window(win_size).to(com.device)
     wav = torch.istft(
         com,
         n_fft,
@@ -230,6 +230,10 @@ class MPSENet(
         self.mask_decoder = MaskDecoder(h, out_channel=1)
         self.phase_decoder = PhaseDecoder(h, out_channel=1)
 
+        self.register_buffer(
+            "hann_window", torch.hann_window(h.win_size), persistent=False
+        )
+
     def __call__(
         self, inputs: np.array, segment_size: int | None = None
     ) -> Tuple[np.array, int, List[str]]:
@@ -265,18 +269,19 @@ class MPSENet(
             segment = inputs[:, start:end]
             noisy_amp, noisy_pha, _ = mag_pha_stft(
                 segment,
+                self.hann_window,
                 self.h.n_fft,
                 self.h.hop_size,
                 self.h.win_size,
                 self.h.compress_factor,
             )
-            print(f"{noisy_amp.shape=}, {noisy_pha.shape=}")
 
             amp_g, pha_g, _ = self.forward(noisy_amp, noisy_pha)
 
             audio_g = mag_pha_istft(
                 amp_g,
                 pha_g,
+                self.hann_window,
                 self.h.n_fft,
                 self.h.hop_size,
                 self.h.win_size,
