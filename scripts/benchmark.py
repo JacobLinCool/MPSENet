@@ -11,7 +11,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 model = MPSENet.from_pretrained("JacobLinCool/MP-SENet-DNS").to("cuda")
 
 sample_rate = 16000  # Hz
-durations = range(1, 14)  # From 1 to 13 seconds (OOM for 14+ seconds)
+durations = range(1, 30)  # From 1 second onwards
 memory_usage = []
 runtimes = []
 
@@ -28,7 +28,15 @@ def measure_memory_and_runtime(duration, sample_rate, model):
 
     # Measure runtime of the forward pass
     start_time = time.time()
-    model(audio_tensor, segment_size=99999999)
+    try:
+        model(audio_tensor, segment_size=99999999)
+    except RuntimeError as e:
+        if "out of memory" in str(e):
+            print(f"OOM at {duration} sec; stopping early.")
+            torch.cuda.empty_cache()
+            return None, None
+        else:
+            raise e
     end_time = time.time()
 
     # Calculate runtime and memory usage
@@ -38,6 +46,7 @@ def measure_memory_and_runtime(duration, sample_rate, model):
     # Clear GPU cache to avoid memory accumulation
     del audio_tensor
     torch.cuda.empty_cache()
+    time.sleep(1)
 
     return max_memory, runtime
 
@@ -48,13 +57,16 @@ warmup_duration = 0.5  # 0.5 second
 warmup_memory, warmup_runtime = measure_memory_and_runtime(
     warmup_duration, 16000, model
 )
-print(
-    f"Warm-up completed - Memory: {warmup_memory:.2f} MB - Runtime: {warmup_runtime:.4f} sec"
-)
+if warmup_memory is not None:
+    print(
+        f"Warm-up completed - Memory: {warmup_memory:.2f} MB - Runtime: {warmup_runtime:.4f} sec"
+    )
 
 # Run measurements for each duration
 for duration in durations:
     max_memory, runtime = measure_memory_and_runtime(duration, sample_rate, model)
+    if max_memory is None:
+        break  # Stop the loop if OOM occurs
     print(
         f"Duration: {duration} sec - Memory: {max_memory:.2f} MB - Runtime: {runtime:.4f} sec"
     )
@@ -66,7 +78,7 @@ plt.figure(figsize=(12, 6))
 
 # Plot 1: Memory Usage
 plt.subplot(1, 2, 1)
-plt.plot(durations, memory_usage, marker="o", color="b")
+plt.plot(durations[: len(memory_usage)], memory_usage, marker="o", color="b")
 plt.xlabel("Audio Duration (seconds)")
 plt.ylabel("Max Memory Allocated (MB)")
 plt.title("Memory Usage vs. Audio Duration")
@@ -74,7 +86,7 @@ plt.grid(True)
 
 # Plot 2: Runtime
 plt.subplot(1, 2, 2)
-plt.plot(durations, runtimes, marker="o", color="r")
+plt.plot(durations[: len(runtimes)], runtimes, marker="o", color="r")
 plt.xlabel("Audio Duration (seconds)")
 plt.ylabel("Runtime (seconds)")
 plt.title("Runtime vs. Audio Duration")
